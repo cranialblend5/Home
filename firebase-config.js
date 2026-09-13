@@ -5,10 +5,10 @@
 // on their own (Firestore security rules control who can read/write).
 // ---------------------------------------------------------------------------
 const firebaseConfig = {
-  apiKey: "PASTE_API_KEY_HERE",
-  authDomain: "PASTE_PROJECT_ID.firebaseapp.com",
-  projectId: "PASTE_PROJECT_ID",
-  storageBucket: "PASTE_PROJECT_ID.appspot.com",
-  messagingSenderId: "PASTE_SENDER_ID",
-  appId: "PASTE_APP_ID"
+  apiKey: "AIzaSyAsxAMvG-fkxs2ewwmOp8Vq9cX9zv08_GI",
+  authDomain: "ss2-home.firebaseapp.com",
+  projectId: "ss2-home",
+  storageBucket: "ss2-home.firebasestorage.app",
+  messagingSenderId: "952193048543",
+  appId: "1:952193048543:web:324fd5a88576e8a6496e6a"
 };
