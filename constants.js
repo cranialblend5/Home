@@ -17,7 +17,7 @@ const SPLIT_TEMPLATES = {
   },
   equal: {
     label: "Equal thirds",
-    percents: { sendil_priya: 33.34, kirti: 33.33, pam: 33.33 },
+    percents: { sendil_priya: 50, kirti: 25, pam: 25 },
   },
 };
 
