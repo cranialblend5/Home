@@ -1,0 +1,21 @@
+// Paste this into: Firebase Console → Firestore Database → Rules
+//
+// This app has no login system (by design, so nobody has to install
+// anything or create an account) — everyone who has the link can read
+// and write. That's a reasonable trade-off for 3 trusted flatmates
+// splitting known small amounts, but it does mean anyone with the link
+// can see and edit the data. Don't share the link outside your group.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /expenses/{id} {
+      allow read, write: if true;
+    }
+    match /settlements/{id} {
+      allow read, write: if true;
+    }
+    match /meta/{id} {
+      allow read, write: if true;
+    }
+  }
+}
