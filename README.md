@@ -80,14 +80,20 @@ should have admin rights.
 - **Add Expense** — anyone logs an expense: description, category (auto-fills
   the right split), amount, who paid, date. Tick "Custom split" to override
   the percentages for that one expense.
-- **History** — every expense and settlement, with delete buttons (your own
-  entries always; anyone's entries once Admin is unlocked).
+- **History** — every expense and settlement, with edit (✏️) and delete (🗑️)
+  buttons (your own entries always; anyone's entries once Admin is unlocked).
+  Editing reopens the Add Expense / Settle Up form pre-filled — change
+  anything and save to update it in place.
 - **Settle Up** — record a direct payment between two people (e.g. Kirti
   Venmos/bank-transfers Sendil to clear a balance) without creating a new
   shared expense.
+- **Forecast** — projects each person's remaining spend: unpaid rent cheques
+  (split 40/30/30) plus recurring monthly items — house help and a DEWA
+  estimate (both split 50/25/25) — through the last cheque's due date (or the
+  next 12 months if no due dates are set).
 - **Admin** (PIN-gated) — edit the default split ratios per category, manage
-  the rent cheque schedule (label, amount, due date, paid checkbox), and
-  change the admin PIN.
+  the rent cheque schedule (label, amount, due date, paid checkbox), set the
+  recurring monthly items used by the Forecast tab, and change the admin PIN.
 
 ## Security note
 

@@ -23,6 +23,7 @@
       <button class="tab" data-tab="add">Add Expense</button>
       <button class="tab" data-tab="history">History</button>
       <button class="tab" data-tab="settle">Settle Up</button>
+      <button class="tab" data-tab="forecast">Forecast</button>
       <button class="tab" data-tab="admin" id="adminTabBtn" hidden>Admin</button>
     </nav>
 
@@ -50,7 +51,11 @@
       <!-- ADD EXPENSE -->
       <section id="tab-add" class="panel">
         <div class="card">
-          <h2>Add an expense</h2>
+          <h2 id="expenseFormTitle">Add an expense</h2>
+          <div id="expenseEditingBanner" class="editing-banner" hidden>
+            Editing an existing expense.
+            <button type="button" id="cancelExpenseEditBtn" class="link-btn">Cancel edit</button>
+          </div>
           <form id="expenseForm">
             <label>Description
               <input type="text" id="expDesc" placeholder="e.g. September DEWA bill" required />
@@ -81,7 +86,7 @@
               <input type="text" id="expNotes" placeholder="cheque number, receipt link, etc." />
             </label>
 
-            <button type="submit" class="primary">Save expense</button>
+            <button type="submit" class="primary" id="expenseSubmitBtn">Save expense</button>
           </form>
         </div>
       </section>
@@ -101,8 +106,12 @@
       <!-- SETTLE UP -->
       <section id="tab-settle" class="panel">
         <div class="card">
-          <h2>Record a payment between members</h2>
+          <h2 id="settleFormTitle">Record a payment between members</h2>
           <p class="hint">Use this when someone pays another member directly to clear a balance (not a shared apartment expense).</p>
+          <div id="settleEditingBanner" class="editing-banner" hidden>
+            Editing an existing settlement.
+            <button type="button" id="cancelSettleEditBtn" class="link-btn">Cancel edit</button>
+          </div>
           <form id="settleForm">
             <label>From (who paid)
               <select id="settleFrom"></select>
@@ -119,8 +128,18 @@
             <label>Note (optional)
               <input type="text" id="settleNote" />
             </label>
-            <button type="submit" class="primary">Record payment</button>
+            <button type="submit" class="primary" id="settleSubmitBtn">Record payment</button>
           </form>
+        </div>
+      </section>
+
+      <!-- FORECAST -->
+      <section id="tab-forecast" class="panel">
+        <div class="card">
+          <h2>Projected remaining spend</h2>
+          <div id="forecastHorizon" class="hint"></div>
+          <div id="forecastTable" class="forecast-table"></div>
+          <div id="forecastNote" class="hint forecast-note"></div>
         </div>
       </section>
 
@@ -138,6 +157,12 @@
           <button id="saveChequesBtn" class="primary">Save cheque schedule</button>
         </div>
         <div class="card">
+          <h2>Recurring monthly items</h2>
+          <p class="hint">Used by the Forecast tab to project upcoming spend. DEWA is a draft estimate — adjust it to match your actual bills.</p>
+          <div id="recurringEditor" class="recurring-editor"></div>
+          <button id="saveRecurringBtn" class="primary">Save recurring items</button>
+        </div>
+        <div class="card">
           <h2>Change admin PIN</h2>
           <form id="pinForm">
             <label>New PIN
@@ -148,7 +173,7 @@
         </div>
         <div class="card">
           <h2>Danger zone</h2>
-          <p class="hint">Delete any expense or settlement from the History tab — an admin unlock is required for entries you didn't create.</p>
+          <p class="hint">Edit or delete any expense or settlement from the History tab — an admin unlock is required for entries you didn't create.</p>
         </div>
       </section>
     </main>

@@ -15,7 +15,11 @@ const state = {
   expenses: [],
   settlements: [],
   pinResolve: null,
+  editingExpenseId: null,
+  editingSettlementId: null,
 };
+
+const DEFAULT_RECURRING = { houseHelp: 550, dewaEstimate: 400 };
 
 const fmt = (n) =>
   `${CURRENCY} ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -65,11 +69,12 @@ function ensureConfigDoc() {
       adminPin: DEFAULT_ADMIN_PIN,
       splitOverrides,
       cheques: [
-        { label: "Cheque 1", amount: rentCheque, dueDate: "", paid: true },
-        { label: "Cheque 2", amount: rentCheque, dueDate: "", paid: false },
-        { label: "Cheque 3", amount: rentCheque, dueDate: "", paid: false },
-        { label: "Cheque 4", amount: rentCheque, dueDate: "", paid: false },
+        { label: "Cheque 1", amount: rentCheque, dueDate: "2026-09-07", paid: true },
+        { label: "Cheque 2", amount: rentCheque, dueDate: "2026-12-07", paid: false },
+        { label: "Cheque 3", amount: rentCheque, dueDate: "2027-03-07", paid: false },
+        { label: "Cheque 4", amount: rentCheque, dueDate: "2027-06-07", paid: false },
       ],
+      recurring: { ...DEFAULT_RECURRING },
       seeded: false,
     };
     tx.set(ref, config);
@@ -233,6 +238,7 @@ function renderAll() {
   if (!state.config) return;
   renderDashboard();
   renderHistory();
+  renderForecast();
   renderAdmin();
 }
 
@@ -349,7 +355,7 @@ function renderExpenseRow(e) {
       ${e.notes ? `<div class="list-sub notes">${e.notes}</div>` : ""}
     </div>
     <div class="list-actions">
-      ${canEdit ? `<button class="icon-btn" onclick="deleteExpense('${e.id}')">🗑️</button>` : ""}
+      ${canEdit ? `<button class="icon-btn" onclick="editExpense('${e.id}')">✏️</button><button class="icon-btn" onclick="deleteExpense('${e.id}')">🗑️</button>` : ""}
     </div>
   </div>`;
 }
@@ -362,9 +368,72 @@ function renderSettlementRow(s) {
       <div class="list-sub">${s.date} · ${fmt(s.amount)}${s.note ? " · " + s.note : ""}</div>
     </div>
     <div class="list-actions">
-      ${canEdit ? `<button class="icon-btn" onclick="deleteSettlement('${s.id}')">🗑️</button>` : ""}
+      ${canEdit ? `<button class="icon-btn" onclick="editSettlement('${s.id}')">✏️</button><button class="icon-btn" onclick="deleteSettlement('${s.id}')">🗑️</button>` : ""}
     </div>
   </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Forecast
+// ---------------------------------------------------------------------------
+
+function monthsBetween(from, to) {
+  const days = (to - from) / (1000 * 60 * 60 * 24);
+  return Math.max(Math.ceil(days / 30), 0);
+}
+
+function renderForecast() {
+  const cheques = state.config.cheques || [];
+  const unpaid = cheques.filter((c) => !c.paid);
+  const rentPercents = currentSplitPercents("rent");
+  const utilityPercents = currentSplitPercents("utility");
+  const recurring = state.config.recurring || DEFAULT_RECURRING;
+
+  const today = new Date();
+  const datedUnpaid = unpaid.filter((c) => c.dueDate);
+  let horizonDate;
+  let horizonIsEstimate = false;
+  if (datedUnpaid.length) {
+    horizonDate = new Date(Math.max(...datedUnpaid.map((c) => new Date(c.dueDate).getTime())));
+  } else {
+    horizonDate = new Date(today.getFullYear(), today.getMonth() + 12, today.getDate());
+    horizonIsEstimate = true;
+  }
+
+  const months = monthsBetween(today, horizonDate);
+  const horizonStr = horizonDate.toISOString().slice(0, 10);
+
+  document.getElementById("forecastHorizon").textContent = horizonIsEstimate
+    ? `No due dates set on the unpaid cheques — estimating over the next 12 months (through ${horizonStr}).`
+    : `Projected through ${horizonStr} (about ${months} month${months === 1 ? "" : "s"} from today), based on the last unpaid rent cheque's due date.`;
+
+  const rows = MEMBERS.map((m) => {
+    const remainingRent = unpaid.reduce((sum, c) => sum + (c.amount * (rentPercents[m.id] || 0)) / 100, 0);
+    const monthlyRecurring = (((recurring.houseHelp || 0) + (recurring.dewaEstimate || 0)) * (utilityPercents[m.id] || 0)) / 100;
+    const recurringTotal = monthlyRecurring * months;
+    const total = remainingRent + recurringTotal;
+    return { m, remainingRent, recurringTotal, total };
+  });
+
+  const header = `<div class="forecast-row header">
+    <span>Member</span><span>Remaining rent</span><span>Recurring (${months} mo)</span><span>Total upcoming</span>
+  </div>`;
+  const body = rows
+    .map(
+      (r) => `<div class="forecast-row">
+    <span>${r.m.name}</span>
+    <span>${fmt(r.remainingRent)}</span>
+    <span>${fmt(r.recurringTotal)}</span>
+    <span><b>${fmt(r.total)}</b></span>
+  </div>`
+    )
+    .join("");
+
+  document.getElementById("forecastTable").innerHTML = header + body;
+
+  document.getElementById("forecastNote").innerHTML =
+    `Recurring assumes ${fmt(recurring.houseHelp || 0)}/month house help (Ramu) and a ${fmt(recurring.dewaEstimate || 0)}/month DEWA draft estimate, both split 50/25/25 — adjust these in Admin → Recurring monthly items to match your actual bills. ` +
+    `Remaining rent is the sum of unpaid cheques, split 40/30/30. This is upcoming spend only — it does not include your current settle-up balance shown on the Dashboard.`;
 }
 
 function renderAdmin() {
@@ -398,11 +467,86 @@ function renderAdmin() {
       </div>`
     )
     .join("");
+
+  const recurring = state.config.recurring || DEFAULT_RECURRING;
+  document.getElementById("recurringEditor").innerHTML = `
+    <label class="split-input">House Help (Ramu) / month
+      <input type="number" min="0" step="0.01" id="recurringHouseHelp" value="${recurring.houseHelp}" />
+    </label>
+    <label class="split-input">DEWA draft estimate / month
+      <input type="number" min="0" step="0.01" id="recurringDewa" value="${recurring.dewaEstimate}" />
+    </label>
+  `;
 }
 
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
+
+function editExpense(id) {
+  const expense = state.expenses.find((x) => x.id === id);
+  if (!expense) return;
+  state.editingExpenseId = id;
+  document.querySelector('.tab[data-tab="add"]').click();
+
+  document.getElementById("expDesc").value = expense.description;
+  document.getElementById("expCategory").value = expense.category;
+  document.getElementById("expAmount").value = expense.amount;
+  document.getElementById("expPaidBy").value = expense.paidBy;
+  document.getElementById("expDate").value = expense.date;
+  document.getElementById("expNotes").value = expense.notes || "";
+
+  const isCustom = expense.splitType === "custom";
+  document.getElementById("customSplitToggle").checked = isCustom;
+  renderCustomSplitInputs();
+  if (isCustom) {
+    for (const input of document.querySelectorAll(".custom-pct")) {
+      input.value = expense.splitPercents?.[input.dataset.member] ?? 0;
+    }
+  }
+  updateSplitPreview();
+
+  document.getElementById("expenseFormTitle").textContent = "Edit expense";
+  document.getElementById("expenseSubmitBtn").textContent = "Update expense";
+  document.getElementById("expenseEditingBanner").hidden = false;
+}
+
+function cancelExpenseEdit() {
+  state.editingExpenseId = null;
+  document.getElementById("expenseForm").reset();
+  renderAddFormStatics();
+  document.getElementById("customSplitToggle").checked = false;
+  renderCustomSplitInputs();
+  document.getElementById("expenseFormTitle").textContent = "Add an expense";
+  document.getElementById("expenseSubmitBtn").textContent = "Save expense";
+  document.getElementById("expenseEditingBanner").hidden = true;
+}
+
+function editSettlement(id) {
+  const settlement = state.settlements.find((x) => x.id === id);
+  if (!settlement) return;
+  state.editingSettlementId = id;
+  document.querySelector('.tab[data-tab="settle"]').click();
+
+  document.getElementById("settleFrom").value = settlement.from;
+  document.getElementById("settleTo").value = settlement.to;
+  document.getElementById("settleAmount").value = settlement.amount;
+  document.getElementById("settleDate").value = settlement.date;
+  document.getElementById("settleNote").value = settlement.note || "";
+
+  document.getElementById("settleFormTitle").textContent = "Edit settlement";
+  document.getElementById("settleSubmitBtn").textContent = "Update payment";
+  document.getElementById("settleEditingBanner").hidden = false;
+}
+
+function cancelSettleEdit() {
+  state.editingSettlementId = null;
+  document.getElementById("settleForm").reset();
+  renderAddFormStatics();
+  document.getElementById("settleFormTitle").textContent = "Record a payment between members";
+  document.getElementById("settleSubmitBtn").textContent = "Record payment";
+  document.getElementById("settleEditingBanner").hidden = true;
+}
 
 async function deleteExpense(id) {
   if (!requireDb()) return;
@@ -458,6 +602,14 @@ async function saveSplitOverride(key) {
   }
   await db.collection("meta").doc("config").update({ [`splitOverrides.${key}`]: percents });
   toast("Split ratio saved");
+}
+
+async function saveRecurring() {
+  if (!requireDb()) return;
+  const houseHelp = Number(document.getElementById("recurringHouseHelp").value) || 0;
+  const dewaEstimate = Number(document.getElementById("recurringDewa").value) || 0;
+  await db.collection("meta").doc("config").update({ recurring: { houseHelp, dewaEstimate } });
+  toast("Recurring items saved");
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +691,7 @@ function setupExpenseForm() {
     renderCustomSplitInputs();
     updateSplitPreview();
   });
+  document.getElementById("cancelExpenseEditBtn").addEventListener("click", cancelExpenseEdit);
 
   document.getElementById("expenseForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -570,31 +723,35 @@ function setupExpenseForm() {
     }
 
     const amounts = splitAmounts(percents, amount);
+    const record = { description, category: categoryId, amount, paidBy, date, splitType, splitPercents: percents, splitAmounts: amounts, notes };
 
-    await db.collection("expenses").add({
-      description,
-      category: categoryId,
-      amount,
-      paidBy,
-      date,
-      splitType,
-      splitPercents: percents,
-      splitAmounts: amounts,
-      notes,
-      createdBy: state.who,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    if (state.editingExpenseId) {
+      await db.collection("expenses").doc(state.editingExpenseId).update(record);
+      toast("Expense updated");
+    } else {
+      await db.collection("expenses").add({
+        ...record,
+        createdBy: state.who,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      toast("Expense saved");
+    }
 
-    toast("Expense saved");
+    state.editingExpenseId = null;
     e.target.reset();
     renderAddFormStatics();
     document.getElementById("customSplitToggle").checked = false;
     renderCustomSplitInputs();
+    document.getElementById("expenseFormTitle").textContent = "Add an expense";
+    document.getElementById("expenseSubmitBtn").textContent = "Save expense";
+    document.getElementById("expenseEditingBanner").hidden = true;
     document.querySelector('.tab[data-tab="dashboard"]').click();
   });
 }
 
 function setupSettleForm() {
+  document.getElementById("cancelSettleEditBtn").addEventListener("click", cancelSettleEdit);
+
   document.getElementById("settleForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!requireDb()) return;
@@ -609,19 +766,26 @@ function setupSettleForm() {
       return;
     }
 
-    await db.collection("settlements").add({
-      from,
-      to,
-      amount,
-      date,
-      note,
-      createdBy: state.who,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-    });
+    const record = { from, to, amount, date, note };
 
-    toast("Settlement recorded");
+    if (state.editingSettlementId) {
+      await db.collection("settlements").doc(state.editingSettlementId).update(record);
+      toast("Settlement updated");
+    } else {
+      await db.collection("settlements").add({
+        ...record,
+        createdBy: state.who,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      toast("Settlement recorded");
+    }
+
+    state.editingSettlementId = null;
     e.target.reset();
     renderAddFormStatics();
+    document.getElementById("settleFormTitle").textContent = "Record a payment between members";
+    document.getElementById("settleSubmitBtn").textContent = "Record payment";
+    document.getElementById("settleEditingBanner").hidden = true;
     document.querySelector('.tab[data-tab="dashboard"]').click();
   });
 }
@@ -629,6 +793,7 @@ function setupSettleForm() {
 function setupAdminTab() {
   document.getElementById("addChequeBtn").addEventListener("click", addChequeRow);
   document.getElementById("saveChequesBtn").addEventListener("click", saveChequeSchedule);
+  document.getElementById("saveRecurringBtn").addEventListener("click", saveRecurring);
   document.getElementById("pinForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!requireDb()) return;
