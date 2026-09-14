@@ -26,7 +26,7 @@ pick your name, and log an expense. Everyone sees live, shared balances.
 | DEWA Deposit | 2,000 | 50% / 25% / 25% | Already paid |
 | DEWA monthly bills | varies | 50% / 25% / 25% | Log each bill as it comes |
 | House help salary | 550/month | 50% / 25% / 25% | Log each month |
-| Furniture / movers / curtains | varies | Equal thirds by default | Log each purchase |
+| Furniture / movers / curtains / other | varies | 50% / 25% / 25% | Log each purchase |
 
 These are just **defaults** — every category's split ratio can be changed
 in the Admin tab, and any single expense can use a custom split instead.
