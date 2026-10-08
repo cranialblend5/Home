@@ -9,6 +9,10 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div id="loadingOverlay" class="loading-overlay">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading Casa Split…</div>
+  </div>
   <div id="app">
     <header class="topbar">
       <div class="brand">🏠 Casa Split</div>
@@ -85,6 +89,12 @@
             <label>Notes (optional)
               <input type="text" id="expNotes" placeholder="cheque number, receipt link, etc." />
             </label>
+
+            <label>Attachments (optional)
+              <input type="file" id="expAttachmentInput" multiple />
+            </label>
+            <p class="hint">Photos or documents — proof of payment, receipts, anything for reference. Any file type, multiple allowed.</p>
+            <div id="attachmentPreview" class="attachment-preview"></div>
 
             <button type="submit" class="primary" id="expenseSubmitBtn">Save expense</button>
           </form>
@@ -193,6 +203,7 @@
 
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
   <script src="firebase-config.js"></script>
   <script src="constants.js"></script>
   <script src="app.js"></script>

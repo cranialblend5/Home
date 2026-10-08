@@ -1,0 +1,13 @@
+// Paste this into: Firebase Console → Storage → Rules
+//
+// Same trade-off as firestore.rules: no login system, so anyone with the
+// app link can upload/read/delete attachment files. Reasonable for 3
+// trusted flatmates; don't share the link outside your group.
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}

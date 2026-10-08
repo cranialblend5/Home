@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 let db = null;
+let storage = null;
 
 const state = {
   who: localStorage.getItem("casaSplitWho") || MEMBERS[0].id,
@@ -20,11 +21,34 @@ const state = {
 };
 
 const DEFAULT_RECURRING = { houseHelp: 550, dewaEstimate: 400 };
+const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024; // 15MB per file
+
+// Attachments currently staged in the Add Expense form: existing ones kept
+// from the expense being edited, plus newly-picked files not yet uploaded.
+let pendingAttachments = [];
+
+// Tracks whether each realtime collection has delivered its first snapshot,
+// so the loading overlay can be dismissed once everything is in.
+const loaded = { config: false, expenses: false, settlements: false };
+
+function markLoaded(key) {
+  loaded[key] = true;
+  if (loaded.config && loaded.expenses && loaded.settlements) hideLoadingOverlay();
+}
+
+function hideLoadingOverlay() {
+  const el = document.getElementById("loadingOverlay");
+  if (!el || el.hidden) return;
+  el.classList.add("fade-out");
+  setTimeout(() => { el.hidden = true; }, 300);
+}
 
 const fmt = (n) =>
   `${CURRENCY} ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const memberName = (id) => MEMBERS.find((m) => m.id === id)?.name || id;
+
+const isImageType = (type) => typeof type === "string" && type.startsWith("image/");
 
 function toast(msg) {
   const el = document.getElementById("toast");
@@ -44,6 +68,11 @@ function initFirebase() {
   }
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
+  storage = firebase.storage();
+  // Caches data on-device so repeat visits can paint instantly from cache
+  // while syncing in the background. Safe to ignore failures (e.g. private
+  // browsing, or another tab already holding the persistence lock).
+  db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 }
 
 function requireDb() {
@@ -88,7 +117,11 @@ function splitAmounts(percents, amount) {
   return out;
 }
 
-async function seedHistoricalDataIfNeeded() {
+async function seedHistoricalDataIfNeeded(knownConfig) {
+  // Skip the round trip entirely once seeding has already happened — true
+  // for every load after the very first.
+  if (knownConfig && knownConfig.seeded) return;
+
   const ref = db.collection("meta").doc("config");
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
@@ -167,6 +200,7 @@ function listenAll() {
         state.config = snap.data();
         renderAll();
       }
+      markLoaded("config");
     });
 
   db.collection("expenses")
@@ -174,6 +208,7 @@ function listenAll() {
     .onSnapshot((snap) => {
       state.expenses = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       renderAll();
+      markLoaded("expenses");
     });
 
   db.collection("settlements")
@@ -181,6 +216,7 @@ function listenAll() {
     .onSnapshot((snap) => {
       state.settlements = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       renderAll();
+      markLoaded("settlements");
     });
 }
 
@@ -321,6 +357,76 @@ function updateSplitPreview() {
     : `Default split: ${MEMBERS.map((m) => `${m.name} ${percents[m.id]}%`).join(" · ")}`;
 }
 
+function renderAttachmentPreview() {
+  const wrap = document.getElementById("attachmentPreview");
+  wrap.innerHTML = pendingAttachments
+    .map((att, idx) => {
+      const name = att.kind === "existing" ? att.name : att.file.name;
+      const previewUrl = att.kind === "existing" ? (isImageType(att.type) ? att.url : null) : att.previewUrl;
+      const thumb = previewUrl ? `<img src="${previewUrl}" alt="" />` : "📄";
+      return `<span class="attachment-chip">${thumb}<span class="attachment-name">${name}</span><button type="button" class="attachment-remove" onclick="removeAttachment(${idx})">✕</button></span>`;
+    })
+    .join("");
+}
+
+function handleAttachmentInputChange(e) {
+  for (const file of e.target.files) {
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      toast(`${file.name} is over 15MB — skipped.`);
+      continue;
+    }
+    pendingAttachments.push({
+      kind: "new",
+      file,
+      previewUrl: isImageType(file.type) ? URL.createObjectURL(file) : null,
+    });
+  }
+  e.target.value = ""; // allow picking the same or additional files again
+  renderAttachmentPreview();
+}
+
+function removeAttachment(idx) {
+  const [removed] = pendingAttachments.splice(idx, 1);
+  if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+  renderAttachmentPreview();
+}
+
+function clearPendingAttachments() {
+  for (const att of pendingAttachments) {
+    if (att.kind === "new" && att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+  }
+  pendingAttachments = [];
+  renderAttachmentPreview();
+}
+
+function withTimeout(promise, ms, message) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))]);
+}
+
+async function uploadPendingAttachments(expenseId) {
+  const results = [];
+  for (const att of pendingAttachments) {
+    if (att.kind === "existing") {
+      results.push({ name: att.name, url: att.url, path: att.path, type: att.type, size: att.size });
+      continue;
+    }
+    const file = att.file;
+    const path = `expenses/${expenseId}/${Date.now()}_${file.name}`;
+    const ref = storage.ref(path);
+    const task = ref.put(file, { contentType: file.type || "application/octet-stream" });
+    const timeoutMsg = `Upload of "${file.name}" timed out — make sure Firebase Storage is enabled in your Firebase project (see README).`;
+    try {
+      await withTimeout(task, 30000, timeoutMsg);
+    } catch (err) {
+      task.cancel?.();
+      throw err;
+    }
+    const url = await withTimeout(ref.getDownloadURL(), 15000, timeoutMsg);
+    results.push({ name: file.name, url, path, type: file.type || "", size: file.size });
+  }
+  return results;
+}
+
 function renderCustomSplitInputs() {
   const wrap = document.getElementById("customSplitInputs");
   const show = document.getElementById("customSplitToggle").checked;
@@ -347,12 +453,23 @@ function renderExpenseRow(e) {
   const canEdit = state.isAdmin || e.createdBy === state.who;
   const catLabel = CATEGORIES.find((c) => c.id === e.category)?.label || e.category;
   const splitStr = MEMBERS.map((m) => `${m.name} ${fmt(e.splitAmounts?.[m.id] || 0)}`).join(" · ");
+  const attachmentsHtml =
+    e.attachments && e.attachments.length
+      ? `<div class="list-attachments">${e.attachments
+          .map((a) =>
+            isImageType(a.type)
+              ? `<a href="${a.url}" target="_blank" rel="noopener"><img src="${a.url}" alt="${a.name}" /></a>`
+              : `<a class="file-chip" href="${a.url}" target="_blank" rel="noopener">📄 ${a.name}</a>`
+          )
+          .join("")}</div>`
+      : "";
   return `<div class="list-row">
     <div class="list-main">
       <div class="list-title">${e.description} <span class="tag">${catLabel}</span></div>
       <div class="list-sub">${e.date} · paid by ${memberName(e.paidBy)} · ${fmt(e.amount)}</div>
       <div class="list-sub">${splitStr}</div>
       ${e.notes ? `<div class="list-sub notes">${e.notes}</div>` : ""}
+      ${attachmentsHtml}
     </div>
     <div class="list-actions">
       ${canEdit ? `<button class="icon-btn" onclick="editExpense('${e.id}')">✏️</button><button class="icon-btn" onclick="deleteExpense('${e.id}')">🗑️</button>` : ""}
@@ -506,6 +623,10 @@ function editExpense(id) {
   }
   updateSplitPreview();
 
+  clearPendingAttachments();
+  pendingAttachments = (expense.attachments || []).map((a) => ({ kind: "existing", ...a }));
+  renderAttachmentPreview();
+
   document.getElementById("expenseFormTitle").textContent = "Edit expense";
   document.getElementById("expenseSubmitBtn").textContent = "Update expense";
   document.getElementById("expenseEditingBanner").hidden = false;
@@ -517,6 +638,7 @@ function cancelExpenseEdit() {
   renderAddFormStatics();
   document.getElementById("customSplitToggle").checked = false;
   renderCustomSplitInputs();
+  clearPendingAttachments();
   document.getElementById("expenseFormTitle").textContent = "Add an expense";
   document.getElementById("expenseSubmitBtn").textContent = "Save expense";
   document.getElementById("expenseEditingBanner").hidden = true;
@@ -551,7 +673,11 @@ function cancelSettleEdit() {
 async function deleteExpense(id) {
   if (!requireDb()) return;
   if (!confirm("Delete this expense?")) return;
+  const expense = state.expenses.find((x) => x.id === id);
   await db.collection("expenses").doc(id).delete();
+  for (const att of expense?.attachments || []) {
+    if (att.path) storage.ref(att.path).delete().catch(() => {});
+  }
   toast("Expense deleted");
 }
 
@@ -692,6 +818,7 @@ function setupExpenseForm() {
     updateSplitPreview();
   });
   document.getElementById("cancelExpenseEditBtn").addEventListener("click", cancelExpenseEdit);
+  document.getElementById("expAttachmentInput").addEventListener("change", handleAttachmentInputChange);
 
   document.getElementById("expenseForm").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -723,18 +850,51 @@ function setupExpenseForm() {
     }
 
     const amounts = splitAmounts(percents, amount);
-    const record = { description, category: categoryId, amount, paidBy, date, splitType, splitPercents: percents, splitAmounts: amounts, notes };
+    const editingId = state.editingExpenseId;
+    const originalExpense = editingId ? state.expenses.find((x) => x.id === editingId) : null;
+    const expenseId = editingId || db.collection("expenses").doc().id;
 
-    if (state.editingExpenseId) {
-      await db.collection("expenses").doc(state.editingExpenseId).update(record);
-      toast("Expense updated");
-    } else {
-      await db.collection("expenses").add({
-        ...record,
-        createdBy: state.who,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      });
-      toast("Expense saved");
+    const submitBtn = document.getElementById("expenseSubmitBtn");
+    const hadNewFiles = pendingAttachments.some((a) => a.kind === "new");
+    submitBtn.disabled = true;
+    if (hadNewFiles) submitBtn.textContent = "Uploading…";
+
+    try {
+      const attachments = await uploadPendingAttachments(expenseId);
+      const record = {
+        description,
+        category: categoryId,
+        amount,
+        paidBy,
+        date,
+        splitType,
+        splitPercents: percents,
+        splitAmounts: amounts,
+        notes,
+        attachments,
+      };
+
+      if (editingId) {
+        await db.collection("expenses").doc(editingId).update(record);
+        const keptPaths = new Set(attachments.map((a) => a.path));
+        for (const att of originalExpense?.attachments || []) {
+          if (att.path && !keptPaths.has(att.path)) storage.ref(att.path).delete().catch(() => {});
+        }
+        toast("Expense updated");
+      } else {
+        await db.collection("expenses").doc(expenseId).set({
+          ...record,
+          createdBy: state.who,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+        toast("Expense saved");
+      }
+    } catch (err) {
+      console.error(err);
+      toast("Couldn't save the expense — check your connection and try again.");
+      submitBtn.disabled = false;
+      submitBtn.textContent = editingId ? "Update expense" : "Save expense";
+      return;
     }
 
     state.editingExpenseId = null;
@@ -742,8 +902,10 @@ function setupExpenseForm() {
     renderAddFormStatics();
     document.getElementById("customSplitToggle").checked = false;
     renderCustomSplitInputs();
+    clearPendingAttachments();
     document.getElementById("expenseFormTitle").textContent = "Add an expense";
-    document.getElementById("expenseSubmitBtn").textContent = "Save expense";
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Save expense";
     document.getElementById("expenseEditingBanner").hidden = true;
     document.querySelector('.tab[data-tab="dashboard"]').click();
   });
@@ -818,14 +980,30 @@ async function main() {
   renderCustomSplitInputs();
   renderTopbar();
 
+  // Safety net: never leave someone staring at the spinner forever if a
+  // listener stalls (slow network, misconfigured rules, etc.).
+  setTimeout(hideLoadingOverlay, 10000);
+
   try {
     initFirebase();
-    state.config = await ensureConfigDoc();
-    await seedHistoricalDataIfNeeded();
+    // Start the realtime listeners immediately rather than waiting on the
+    // existence/seed checks below — on every load after the very first
+    // (the overwhelmingly common case) those checks are pure overhead that
+    // would otherwise delay the first paint of real data.
     listenAll();
+
+    const ref = db.collection("meta").doc("config");
+    const snap = await ref.get();
+    if (!snap.exists) {
+      const config = await ensureConfigDoc();
+      await seedHistoricalDataIfNeeded(config);
+    } else {
+      await seedHistoricalDataIfNeeded(snap.data());
+    }
   } catch (err) {
     console.error(err);
     toast("Couldn't connect to the shared database. Check your internet connection and reload.");
+    hideLoadingOverlay();
   }
 }
 

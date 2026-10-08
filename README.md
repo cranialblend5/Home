@@ -50,6 +50,10 @@ for those, while still showing them in history for transparency.
    Choose **Start in test mode** (or production mode — either way, paste the
    rules from `firestore.rules` in this repo into Firestore's **Rules** tab
    and click **Publish**).
+6. For attachments (photos/documents on expenses): in the left sidebar go to
+   **Build → Storage → Get started**, accept the default location, then paste
+   the rules from `storage.rules` in this repo into Storage's **Rules** tab
+   and click **Publish**.
 
 ### 2. Turn on GitHub Pages (free hosting)
 
@@ -79,11 +83,15 @@ should have admin rights.
   "who owes whom" suggestion, the rent cheque schedule, and category totals.
 - **Add Expense** — anyone logs an expense: description, category (auto-fills
   the right split), amount, who paid, date. Tick "Custom split" to override
-  the percentages for that one expense.
+  the percentages for that one expense. Attach photos or documents (any file
+  type, multiple at once, 15MB each) as proof of payment or for reference —
+  they're stored in Firebase Storage and shown as thumbnails/links on the
+  expense afterward.
 - **History** — every expense and settlement, with edit (✏️) and delete (🗑️)
   buttons (your own entries always; anyone's entries once Admin is unlocked).
-  Editing reopens the Add Expense / Settle Up form pre-filled — change
-  anything and save to update it in place.
+  Editing reopens the Add Expense / Settle Up form pre-filled, attachments
+  included — add more, remove existing ones, or change anything else, then
+  save to update it in place.
 - **Settle Up** — record a direct payment between two people (e.g. Kirti
   Venmos/bank-transfers Sendil to clear a balance) without creating a new
   shared expense.
@@ -94,6 +102,11 @@ should have admin rights.
 - **Admin** (PIN-gated) — edit the default split ratios per category, manage
   the rent cheque schedule (label, amount, due date, paid checkbox), set the
   recurring monthly items used by the Forecast tab, and change the admin PIN.
+
+A loading screen with a spinner covers the page for the first moment while
+it connects to the shared database, then everything appears at once rather
+than popping in piece by piece. Repeat visits on the same device load faster
+since the data is cached locally and syncs in the background.
 
 ## Security note
 
